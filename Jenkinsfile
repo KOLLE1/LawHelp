@@ -11,7 +11,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 // Clone the GitHub repository
-                git url: "https://github.com/KOLLE1/LawHelp.git", branch: 'main'
+                git url: "https://github.com/KOLLE1/LawHelp", branch: 'main'
             }
         }
         stage('Build Docker Image') {
