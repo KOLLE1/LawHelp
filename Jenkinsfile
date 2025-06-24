@@ -1,10 +1,9 @@
-
 pipeline {
     agent any
     environment {
         // Define the GitHub Packages registry and credentials
         REGISTRY = "ghcr.io"
-        IMAGE_NAME = "${env.GITHUB_REPOSITORY_OWNER}/${env.REPOSITORY_NAME}"
+        IMAGE_NAME = "KOLLE1/LawHelp"
         GITHUB_CREDENTIALS = credentials('github-packages-credentials') // Jenkins credential ID for GitHub Packages
     }
     stages {
