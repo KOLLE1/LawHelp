@@ -4,7 +4,7 @@ services:
     container_name: mysql_portainer
     environment:
       MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: my_database
+      MYSQL_DATABASE: lawhelp_db
       MYSQL_USER: user
       MYSQL_PASSWORD: user_password
     volumes:
