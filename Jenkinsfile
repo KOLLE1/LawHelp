@@ -4,7 +4,6 @@ pipeline {
         // Define the GitHub Packages registry and credentials
         REGISTRY = "ghcr.io"
         IMAGE_NAME = "${env.GITHUB_REPOSITORY_OWNER}/${env.REPOSITORY_NAME}"
-        GITHUB_CREDENTIALS = credentials('github-packages-credentials') // Jenkins credential ID for GitHub Packages
     }
     stages {
         stage('Checkout') {
