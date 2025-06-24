@@ -1,10 +1,9 @@
 pipeline {
-    agent any // This applies to the stages
-
+    agent any
     environment {
         // Define the GitHub Packages registry and credentials
         REGISTRY = "ghcr.io"
-        IMAGE_NAME = "KOLLE1/LawHelp"
+        IMAGE_NAME = "${env.GITHUB_REPOSITORY_OWNER}/${env.REPOSITORY_NAME}"
         GITHUB_CREDENTIALS = credentials('github-packages-credentials') // Jenkins credential ID for GitHub Packages
     }
     stages {
@@ -36,26 +35,20 @@ pipeline {
         stage('Clean Up') {
             steps {
                 // Remove the local Docker image to save space
-                bat "docker rmi ${REGISTRY}/${IMAGE_NAME}:${env.BUILD_NUMBER} || exit 0"
-                bat "docker rmi ${REGISTRY}/${IMAGE_NAME}:latest || exit 0"
+                sh "docker rmi ${REGISTRY}/${IMAGE_NAME}:${env.BUILD_NUMBER} || true"
+                sh "docker rmi ${REGISTRY}/${IMAGE_NAME}:latest || true"
             }
         }
     }
     post {
         always {
-            // Use agent any for post-build actions to provide a context
-            agent any
             // Log out from GitHub Packages
-            bat 'docker logout'
+            sh 'docker logout'
         }
         success {
-            // Use agent any for post-build actions
-            agent any
             echo 'Docker image successfully built and pushed to GitHub Packages!'
         }
         failure {
-            // Use agent any for post-build actions
-            agent any
             echo 'Build or push failed. Check the logs for details.'
         }
     }
