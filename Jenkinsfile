@@ -1,87 +1,170 @@
+
 pipeline {
     agent any
     
     environment {
-        DOCKER_IMAGE = 'lawhelp'
+        NODE_VERSION = '20'
+        DOCKER_IMAGE = 'legal-navigator'
         DOCKER_TAG = "${BUILD_NUMBER}"
-        KUBECONFIG = credentials('kubeconfig')
-        DOCKER_REGISTRY = 'your-registry.com'
+        REGISTRY = 'ghrc.io'
     }
     
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "Checked out source code from repository"
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                }
+            }
+        }
+        
+        stage('Setup Environment') {
+            steps {
+                script {
+                    // Install Node.js
+                    sh '''
+                        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+                        export NVM_DIR="$HOME/.nvm"
+                        [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                        nvm install ${NODE_VERSION}
+                        nvm use ${NODE_VERSION}
+                    '''
+                }
             }
         }
         
         stage('Install Dependencies') {
             steps {
-                script {
-                    echo "Installing Node.js dependencies"
-                    sh 'npm ci'
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                    nvm use ${NODE_VERSION}
+                    npm ci
+                '''
+            }
+        }
+        
+        stage('Code Quality & Linting') {
+            parallel {
+                stage('TypeScript Check') {
+                    steps {
+                        sh '''
+                            export NVM_DIR="$HOME/.nvm"
+                            [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                            nvm use ${NODE_VERSION}
+                            npm run check
+                        '''
+                    }
+                }
+                stage('Lint') {
+                    steps {
+                        sh '''
+                            export NVM_DIR="$HOME/.nvm"
+                            [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                            nvm use ${NODE_VERSION}
+                            npx eslint . --ext .ts,.tsx --max-warnings 0
+                        '''
+                    }
                 }
             }
         }
         
-        stage('Lint and Type Check') {
-            steps {
-                script {
-                    echo "Running ESLint and TypeScript checks"
-                    sh 'npm run check'
+        stage('Run Tests') {
+            parallel {
+                stage('Unit Tests') {
+                    steps {
+                        sh '''
+                            export NVM_DIR="$HOME/.nvm"
+                            [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                            nvm use ${NODE_VERSION}
+                            npm run test:unit
+                        '''
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/unit/*.xml'
+                        }
+                    }
+                }
+                stage('Integration Tests') {
+                    steps {
+                        sh '''
+                            export NVM_DIR="$HOME/.nvm"
+                            [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                            nvm use ${NODE_VERSION}
+                            npm run test:integration
+                        '''
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/integration/*.xml'
+                        }
+                    }
+                }
+                stage('E2E Tests') {
+                    steps {
+                        sh '''
+                            export NVM_DIR="$HOME/.nvm"
+                            [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                            nvm use ${NODE_VERSION}
+                            npm run test:e2e
+                        '''
+                    }
+                    post {
+                        always {
+                            publishTestResults testResultsPattern: 'test-results/e2e/*.xml'
+                        }
+                    }
                 }
             }
         }
         
-        stage('Unit Tests') {
+        stage('Code Coverage') {
             steps {
-                script {
-                    echo "Running unit tests with coverage"
-                    sh 'npm test -- --coverage --watchAll=false'
-                }
-                publishTestResults(
-                    testResultsPattern: 'coverage/lcov.info',
-                    allowEmptyResults: false
-                )
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                    nvm use ${NODE_VERSION}
+                    npm run test:coverage
+                '''
             }
             post {
                 always {
-                    publishHTML([
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'coverage',
-                        reportFiles: 'index.html',
-                        reportName: 'Coverage Report'
-                    ])
-                }
-            }
-        }
-        
-        stage('Integration Tests') {
-            steps {
-                script {
-                    echo "Running integration tests"
-                    sh 'npm run test:integration'
+                    publishCoverage adapters: [
+                        istanbulCoberturaAdapter('coverage/cobertura-coverage.xml')
+                    ], sourceFileResolver: sourceFiles('STORE_LAST_BUILD')
                 }
             }
         }
         
         stage('Security Scan') {
             steps {
-                script {
-                    echo "Running security vulnerability scan"
-                    sh 'npm audit --audit-level=moderate'
-                }
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                    nvm use ${NODE_VERSION}
+                    npm audit --audit-level moderate
+                    npx snyk test --severity-threshold=medium
+                '''
             }
         }
         
         stage('Build Application') {
             steps {
-                script {
-                    echo "Building production application"
-                    sh 'npm run build'
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                    nvm use ${NODE_VERSION}
+                    npm run build
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'dist/**/*', fingerprint: true
                 }
             }
         }
@@ -89,12 +172,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image"
-                    def image = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-registry-credentials') {
-                        image.push()
-                        image.push('latest')
-                    }
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                    docker.build("${DOCKER_IMAGE}:latest")
                 }
             }
         }
@@ -105,23 +184,12 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Deploying to staging environment"
-                    sh """
-                        kubectl set image deployment/lawhelp-app lawhelp=${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${DOCKER_TAG} -n lawhelp-staging
-                        kubectl rollout status deployment/lawhelp-app -n lawhelp-staging
-                    """
-                }
-            }
-        }
-        
-        stage('End-to-End Tests') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                script {
-                    echo "Running E2E tests against staging"
-                    sh 'npm run test:e2e'
+                    // Deploy to staging environment
+                    sh '''
+                        kubectl config use-context staging
+                        kubectl set image deployment/legal-navigator legal-navigator=${DOCKER_IMAGE}:${DOCKER_TAG}
+                        kubectl rollout status deployment/legal-navigator
+                    '''
                 }
             }
         }
@@ -132,16 +200,17 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Deploying to production environment"
-                    sh """
-                        kubectl set image deployment/lawhelp-app lawhelp=${DOCKER_REGISTRY}/${DOCKER_IMAGE}:${DOCKER_TAG} -n lawhelp
-                        kubectl rollout status deployment/lawhelp-app -n lawhelp
-                    """
+                    input message: 'Deploy to production?', ok: 'Deploy'
+                    sh '''
+                        kubectl config use-context production
+                        kubectl set image deployment/legal-navigator legal-navigator=${DOCKER_IMAGE}:${DOCKER_TAG}
+                        kubectl rollout status deployment/legal-navigator
+                    '''
                 }
             }
         }
         
-        stage('Post-Deploy Verification') {
+        stage('Post-Deployment Tests') {
             when {
                 anyOf {
                     branch 'main'
@@ -149,10 +218,12 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    echo "Running post-deployment health checks"
-                    sh 'npm run test:health'
-                }
+                sh '''
+                    export NVM_DIR="$HOME/.nvm"
+                    [ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"
+                    nvm use ${NODE_VERSION}
+                    npm run test:smoke
+                '''
             }
         }
     }
@@ -162,19 +233,17 @@ pipeline {
             cleanWs()
         }
         success {
-            echo "Pipeline completed successfully!"
             slackSend(
                 channel: '#deployments',
                 color: 'good',
-                message: "✅ LawHelp deployment successful - Build ${BUILD_NUMBER}"
+                message: "✅ Pipeline succeeded for ${env.JOB_NAME} - ${env.BUILD_NUMBER}"
             )
         }
         failure {
-            echo "Pipeline failed!"
             slackSend(
                 channel: '#deployments',
                 color: 'danger',
-                message: "❌ LawHelp deployment failed - Build ${BUILD_NUMBER}"
+                message: "❌ Pipeline failed for ${env.JOB_NAME} - ${env.BUILD_NUMBER}"
             )
         }
     }
