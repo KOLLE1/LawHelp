@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
     environment {
@@ -35,15 +36,15 @@ pipeline {
         stage('Clean Up') {
             steps {
                 // Remove the local Docker image to save space
-                sh "docker rmi ${REGISTRY}/${IMAGE_NAME}:${env.BUILD_NUMBER} || true"
-                sh "docker rmi ${REGISTRY}/${IMAGE_NAME}:latest || true"
+                bat "docker rmi ${REGISTRY}/${IMAGE_NAME}:${env.BUILD_NUMBER} || exit 0"
+                bat "docker rmi ${REGISTRY}/${IMAGE_NAME}:latest || exit 0"
             }
         }
     }
     post {
         always {
             // Log out from GitHub Packages
-            sh 'docker logout'
+            bat 'docker logout'
         }
         success {
             echo 'Docker image successfully built and pushed to GitHub Packages!'
