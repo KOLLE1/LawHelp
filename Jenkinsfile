@@ -42,20 +42,14 @@ pipeline {
     }
     post {
         always {
-            node {
-                // Log out from GitHub Packages
-                bat 'docker logout'
-            }
+            // Log out from GitHub Packages
+            bat 'docker logout'
         }
         success {
-            node {
-                echo 'Docker image successfully built and pushed to GitHub Packages!'
-            }
+            echo 'Docker image successfully built and pushed to GitHub Packages!'
         }
         failure {
-            node {
-                echo 'Build or push failed. Check the logs for details.'
-            }
+            echo 'Build or push failed. Check the logs for details.'
         }
     }
 }
