@@ -11,7 +11,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 // Clone the GitHub repository
-                git url: "https://github.com/${env.GITHUB_REPOSITORY_OWNER}/${env.REPOSITORY_NAME}.git", branch: 'main'
+                git url: "https://github.com/KOLLE1/LawHelp.git", branch: 'main'
             }
         }
         stage('Build Docker Image') {
@@ -43,14 +43,20 @@ pipeline {
     }
     post {
         always {
-            // Log out from GitHub Packages
-            bat 'docker logout'
+            node {
+                // Log out from GitHub Packages
+                bat 'docker logout'
+            }
         }
         success {
-            echo 'Docker image successfully built and pushed to GitHub Packages!'
+            node {
+                echo 'Docker image successfully built and pushed to GitHub Packages!'
+            }
         }
         failure {
-            echo 'Build or push failed. Check the logs for details.'
+            node {
+                echo 'Build or push failed. Check the logs for details.'
+            }
         }
     }
 }
