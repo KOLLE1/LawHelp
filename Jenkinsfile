@@ -1,5 +1,6 @@
 pipeline {
-    agent any
+    agent any // This applies to the stages
+
     environment {
         // Define the GitHub Packages registry and credentials
         REGISTRY = "ghcr.io"
@@ -42,23 +43,20 @@ pipeline {
     }
     post {
         always {
-            // Re-introduce a node block for bat commands in post-actions
-            node {
-                // Log out from GitHub Packages
-                bat 'docker logout'
-            }
+            // Use agent any for post-build actions to provide a context
+            agent any
+            // Log out from GitHub Packages
+            bat 'docker logout'
         }
         success {
-            // Re-introduce a node block for echo (though echo doesn't strictly need it, it's good practice)
-            node {
-                echo 'Docker image successfully built and pushed to GitHub Packages!'
-            }
+            // Use agent any for post-build actions
+            agent any
+            echo 'Docker image successfully built and pushed to GitHub Packages!'
         }
         failure {
-            // Re-introduce a node block for echo
-            node {
-                echo 'Build or push failed. Check the logs for details.'
-            }
+            // Use agent any for post-build actions
+            agent any
+            echo 'Build or push failed. Check the logs for details.'
         }
     }
 }
