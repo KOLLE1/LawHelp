@@ -1,3 +1,4 @@
+
 services:
   # MySQL Database Service
   mysql:
@@ -73,14 +74,14 @@ services:
       - "80:80"   # HTTP access (for ACME challenges and redirects to HTTPS)
       - "443:443" # HTTPS access
       - "81:81"   # Nginx Proxy Manager Admin UI
-    environment:
-      # NPM uses an internal SQLite database by default if these are not set.
-      # This is usually sufficient. If you need a persistent MySQL database for NPM's config,
-      # you'd set up another MySQL service for it. For simplicity, we omit these.
-      # NPM_HOST: npm-db # Example for an external NPM DB
-      # NPM_USER: npm
-      # NPM_PASSWORD: npm_password
-      # NPM_DATABASE: npm_db
+    environment: # <--- CHANGED: Now explicitly defined with variables
+      DB_MYSQL_HOST: mysql
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: ${NPM_ADMIN_EMAIL} # NPM uses these for internal database, but email is not a DB user
+      DB_MYSQL_PASSWORD: ${NPM_ADMIN_PASSWORD} # NPM uses these for internal database
+      # Note: NPM primarily uses an internal SQLite DB by default.
+      # These environment variables are mostly for connecting NPM's *internal* database to MySQL if desired.
+      # For initial admin user, NPM will use the default credentials and prompt for change on first login.
     volumes:
       - ./data/nginx-proxy-manager:/data # Persistent storage for NPM config and certificates
       - ./letsencrypt:/etc/letsencrypt # Let's Encrypt certificates
