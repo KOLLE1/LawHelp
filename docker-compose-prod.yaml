@@ -62,7 +62,7 @@ services:
     networks:
       - app_network
     ports:
-      8080:80
+      - 8080:80
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/index.php"]
