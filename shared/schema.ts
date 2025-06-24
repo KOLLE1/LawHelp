@@ -159,6 +159,8 @@ export const insertUserSchema = createInsertSchema(users).omit({
   updatedAt: true,
 });
 
+
+
 export const insertChatSessionSchema = createInsertSchema(chatSessions).omit({
   id: true,
   createdAt: true,

@@ -4,7 +4,7 @@ import * as schema from '../shared/schema.js';
 
 async function createDatabaseConnection() {
   try {
-    const DATABASE_URL = process.env.DATABASE_URL || 'mysql://root:password@localhost:3306/lawhelp_db';
+    const DATABASE_URL = process.env.DATABASE_URL || 'mysql://root@localhost:3306/lawhelp_db';
     
     // Parse the DATABASE_URL to get connection parameters
     const url = new URL(DATABASE_URL);

@@ -1,6 +1,8 @@
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import fetch from 'node-fetch';
+import MailtrapClient from 'mailtrap'
+
 
 export interface TwoFactorSetup {
   secret: string;
@@ -54,67 +56,10 @@ export class TwoFactorService {
    * Send verification code via FormSubmit
    */
   async sendEmailCode(email: string, code: string, type: string = 'verification'): Promise<void> {
-    const subject = this.getEmailSubject(type);
-    const message = this.getEmailMessage(code, type);
+    // const subject = this.getEmailSubject(type);
+    // const message = this.getEmailMessage(code, type);
 
-    try {
-      const response = await fetch('https://formsubmit.co/ajax/' + email, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          _subject: subject,
-          _template: 'box',
-          _captcha: 'false',
-          message: message,
-          code: code,
-          type: type
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`FormSubmit error: ${response.status}`);
-      }
-
-      const result = await response.json() as { success?: string };
-      if (result.success !== 'true') {
-        throw new Error('Failed to send email via FormSubmit');
-      }
-
-      console.log(`Email sent successfully to ${email} for ${type}`);
-    } catch (error) {
-      console.error('Error sending email:', error);
-      throw new Error('Failed to send verification email');
-    }
-  }
-
-  /**
-   * Generate backup codes for 2FA
-   */
-  private generateBackupCodes(): string[] {
-    const codes: string[] = [];
-    for (let i = 0; i < 10; i++) {
-      codes.push(Math.random().toString(36).substring(2, 10).toUpperCase());
-    }
-    return codes;
-  }
-
-  /**
-   * Get email subject based on type
-   */
-  private getEmailSubject(type: string): string {
-    switch (type) {
-      case 'email_verification':
-        return 'LawHelp - Verify Your Email Address';
-      case '2fa_email':
-        return 'LawHelp - Two-Factor Authentication Code';
-      case 'password_reset':
-        return 'LawHelp - Password Reset Code';
-      default:
-        return 'LawHelp - Verification Code';
-    }
+    console.log(`code: ${code}`)
   }
 
   /**

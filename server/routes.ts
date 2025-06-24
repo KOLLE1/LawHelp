@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import { initializeStorage } from "./storage.js";
+import { storage } from "./storage-mysql";
 import { aiLegalService } from "./ai-service";
 import { twoFactorService } from "./2fa-service";
 import { metricsHandler, healthHandler, metricsCollector } from "./metrics";
@@ -10,6 +10,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { z } from "zod";
 import { insertUserSchema, insertChatSessionSchema, insertChatMessageSchema } from "../shared/schema";
+import { PassThrough } from "stream";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-key";
 
@@ -54,9 +55,10 @@ async function sendVerificationCode(email: string, code: string, type: string): 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
-  // Initialize storage
-  const storage = await initializeStorage();
+  // // Initialize storage
+  // const storage = await initializeStorage();
 
+  console.log(storage)
   // WebSocket server setup
   const wss = new WebSocketServer({ 
     server: httpServer, 
@@ -153,7 +155,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.post('/api/auth/register', async (req, res) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+
+      const  { email, firstName, lastName, password } = req.body
+      var password_hash = await bcrypt.hash(password, 12)
+      var name = `${firstName} ${lastName}`
+      const userData = insertUserSchema.parse({
+        name:name,
+        email:email,
+        passwordHash:password_hash,
+        lastName:lastName,
+        firstName:firstName
+      });
 
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(userData.email);
@@ -161,8 +173,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'User already exists with this email' });
       }
 
+
+
       // Hash password
-      const passwordHash = await bcrypt.hash(userData.passwordHash, 12);
+      const passwordHash = userData.passwordHash
 
       // Create user
       const user = await storage.createUser({
@@ -202,14 +216,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { email, password } = req.body;
 
+      console.log(email, password)
+
       if (!email || !password) {
         return res.status(400).json({ message: 'Email and password are required' });
       }
 
       const user = await storage.getUserByEmail(email);
+
       if (!user) {
         return res.status(401).json({ message: 'Invalid email or password' });
       }
+
+      
 
       const isValidPassword = await bcrypt.compare(password, user.passwordHash);
       if (!isValidPassword) {
@@ -270,12 +289,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId, code } = req.body;
 
-      const verificationCode = await storage.getVerificationCode(userId, 'email_verification', code);
+ 
+      const user = await storage.getUserByEmail(userId)
+
+      if(!user){
+        return res.status(400).json({ message: 'User with this email dose not exist' });
+      }
+
+
+      const verificationCode = await storage.getVerificationCode(user.id, 'email_verification', code);
       if (!verificationCode) {
         return res.status(400).json({ message: 'Invalid or expired verification code' });
       }
 
-      await storage.updateUser(userId, { emailVerified: true });
+      await storage.updateUser(user.id, { emailVerified: true });
       await storage.markVerificationCodeUsed(verificationCode.id);
 
       res.json({ message: 'Email verified successfully' });
@@ -289,12 +316,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId, code } = req.body;
 
+      
+
       const verificationCode = await storage.getVerificationCode(userId, 'two_factor', code);
       if (!verificationCode) {
         return res.status(400).json({ message: 'Invalid or expired verification code' });
       }
 
       const user = await storage.getUser(userId);
+      console.log(user?.email)
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
       }
