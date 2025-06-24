@@ -39,6 +39,8 @@ services:
         condition: service_healthy # Ensure MySQL is healthy before starting the app
     networks:
       - app_network
+    ports:
+      - 5000:5000
     restart: unless-stopped
 
   # phpMyAdmin Service
@@ -52,12 +54,15 @@ services:
       PMA_PASSWORD: ${PMA_PASSWORD_ROOT}
       # Set a unique blowfish secret for added security (e.g., generate a random 32-char string)
       # PMA_ARBITRARY: 1 # Allows connecting to arbitrary servers, generally not needed in fixed setups
+    
     # No direct ports mapping; Nginx Proxy Manager will proxy requests to this service
     depends_on:
       mysql:
         condition: service_healthy # Ensure MySQL is healthy before starting phpMyAdmin
     networks:
       - app_network
+    ports:
+      8080:80
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/index.php"]
