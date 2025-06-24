@@ -1,25 +1,29 @@
 services:
+  # MySQL Database Service
   mysql:
     image: mysql:8.0
     container_name: mysql_portainer
     environment:
-      MYSQL_ROOT_PASSWORD: root_password
-      MYSQL_DATABASE: lawhelp_db
-      MYSQL_USER: user
-      MYSQL_PASSWORD: user_password
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
-    ports:
-      - "3306:3306"
+      # You can add an initialization script here to create the 'exporter' user automatically:
+      # - ./init-mysql.sql:/docker-entrypoint-initdb.d/init-mysql.sql
+    # No direct ports mapping for external access, Nginx Proxy Manager will handle
+    # - "3306:3306" # Only expose if absolutely necessary for external tools/debugging
     networks:
       - app_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s # Check every 10 seconds
+      timeout: 5s   # Timeout after 5 seconds
+      retries: 5    # Retry 5 times before considering unhealthy
 
+  # Node.js Application Service
   app:
     build:
       context: .
@@ -27,40 +31,124 @@ services:
     container_name: nodejs_app
     environment:
       NODE_ENV: production
-      DATABASE_URL: mysql://user:user_password@mysql:3306/lawhelp_db
-    ports:
-      - "5000:5000"
+      DATABASE_URL: mysql://${APP_DB_USER}:${APP_DB_PASSWORD}@${APP_DB_HOST}:${APP_DB_PORT}/${APP_DB_NAME}
+    # No direct ports mapping; Nginx Proxy Manager will proxy requests to this service
     depends_on:
       mysql:
-        condition: service_healthy
+        condition: service_healthy # Ensure MySQL is healthy before starting the app
     networks:
       - app_network
     restart: unless-stopped
+
+  # phpMyAdmin Service
   phpmyadmin:
     image: phpmyadmin:latest
     container_name: phpmyadmin_portainer
     environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-      PMA_USER: root
-      PMA_PASSWORD: root_password
-    ports:
-      - "8080:80"
+      PMA_HOST: ${PMA_HOST}
+      PMA_PORT: ${PMA_PORT}
+      PMA_USER: ${PMA_USER_ROOT}
+      PMA_PASSWORD: ${PMA_PASSWORD_ROOT}
+      # Set a unique blowfish secret for added security (e.g., generate a random 32-char string)
+      # PMA_ARBITRARY: 1 # Allows connecting to arbitrary servers, generally not needed in fixed setups
+    # No direct ports mapping; Nginx Proxy Manager will proxy requests to this service
     depends_on:
       mysql:
-        condition: service_healthy
+        condition: service_healthy # Ensure MySQL is healthy before starting phpMyAdmin
     networks:
       - app_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/index.php"]
-      interval: 30s
+      interval: 10s
       timeout: 3s
+      retries: 5
+
+  # Nginx Proxy Manager Service
+  # Provides reverse proxying, SSL termination (Let's Encrypt), and basic authentication
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx_proxy_manager
+    ports:
+      - "80:80"   # HTTP access (for ACME challenges and redirects to HTTPS)
+      - "443:443" # HTTPS access
+      - "81:81"   # Nginx Proxy Manager Admin UI
+    environment:
+      # NPM uses an internal SQLite database by default if these are not set.
+      # This is usually sufficient. If you need a persistent MySQL database for NPM's config,
+      # you'd set up another MySQL service for it. For simplicity, we omit these.
+      # NPM_HOST: npm-db # Example for an external NPM DB
+      # NPM_USER: npm
+      # NPM_PASSWORD: npm_password
+      # NPM_DATABASE: npm_db
+    volumes:
+      - ./data/nginx-proxy-manager:/data # Persistent storage for NPM config and certificates
+      - ./letsencrypt:/etc/letsencrypt # Let's Encrypt certificates
+    networks:
+      - app_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:81"]
+      interval: 30s
+      timeout: 10s
       retries: 3
 
+  # Prometheus Service (Metrics Collection)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml # Mount the configuration file
+      - prometheus_data:/prometheus # Persistent storage for Prometheus metrics data
+    ports:
+      - "9090:9090" # Prometheus Web UI
+    networks:
+      - app_network
+    restart: unless-stopped
+    depends_on:
+      - mysqld_exporter # Ensure MySQL Exporter is up before Prometheus starts scraping
+    command: --config.file=/etc/prometheus/prometheus.yml --web.enable-remote-write-receiver
+
+  # Grafana Service (Visualization Dashboard)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana # Persistent storage for Grafana dashboards and data sources
+    ports:
+      - "3000:3000" # Grafana Web UI
+    networks:
+      - app_network
+    restart: unless-stopped
+    depends_on:
+      - prometheus # Ensure Prometheus is available as a data source for Grafana
+
+  # MySQL Exporter Service (Exposes MySQL metrics for Prometheus)
+  mysqld_exporter:
+    image: prom/mysqld-exporter:latest
+    container_name: mysqld_exporter
+    environment:
+      # Data source name for the exporter to connect to MySQL
+      # IMPORTANT: Use a dedicated read-only MySQL user for security
+      # This user needs to be created manually in MySQL, see instructions below.
+      DATA_SOURCE_NAME: '${MYSQLD_EXPORTER_USER}:${MYSQLD_EXPORTER_PASSWORD}@tcp(${APP_DB_HOST}:${APP_DB_PORT})/'
+    networks:
+      - app_network
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy # Ensure MySQL is up before the exporter tries to connect
+    # Exporter default port is 9104, no need to expose externally. Prometheus will access it internally.
+    # ports:
+    #   - "9104:9104" # Only expose if debugging the exporter itself
+
 volumes:
-  mysql_data:
+  mysql_data:      # Persistent volume for MySQL data
+  prometheus_data: # Persistent volume for Prometheus data
+  grafana_data:    # Persistent volume for Grafana data
+  # Nginx Proxy Manager volumes (`./data/nginx-proxy-manager` and `./letsencrypt`)
+  # are mounted directly to host paths for easier access and backup.
 
 networks:
   app_network:
-    driver: bridge
+    driver: bridge # Defines a custom bridge network for inter-service communication
