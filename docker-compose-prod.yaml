@@ -39,8 +39,6 @@ services:
         condition: service_healthy # Ensure MySQL is healthy before starting the app
     networks:
       - app_network
-    ports:
-      - 5000:5000
     restart: unless-stopped
 
   # phpMyAdmin Service
@@ -106,8 +104,8 @@ services:
     volumes:
       - /config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml # Mount the configuration file
       - prometheus_data:/prometheus # Persistent storage for Prometheus metrics data
-    ports:
-      - "9090:9090" # Prometheus Web UI
+
+
     networks:
       - app_network
     restart: unless-stopped
