@@ -17,7 +17,7 @@ pipeline {
         // If your repository is private, you would typically use a 'credentials' parameter
         // credentials(name: 'GIT_CREDENTIALS_ID', description: 'Jenkins credential ID for Git access', required: false)
     }
-
+  //hello
     // Stages: Define the different steps in your CI/CD process.
     stages {
         // Stage 1: Checkout the Git Repository
