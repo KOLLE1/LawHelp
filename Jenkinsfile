@@ -11,10 +11,10 @@ pipeline {
     // It's a good practice to define key variables as parameters so they can be
     // easily configured when triggering the job, rather than hardcoding them.
     parameters {
-        string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/your-org/your-repo.git', description: 'URL of the Git repository to clone')
+        string(name: 'GIT_REPO_URL', defaultValue: 'https://github.com/KOLLE1/LawHelp', description: 'URL of the Git repository to clone')
         string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch to checkout from the Git repository')
-        string(name: 'DOCKER_IMAGE_NAME', defaultValue: 'your-app:latest', description: 'Name and tag for the Docker image (e.g., myapp:1.0)')
-        string(name: 'PORTAINER_WEBHOOK_URL', defaultValue: 'YOUR_PORTAINER_WEBHOOK_URL_HERE', description: 'Portainer webhook URL to trigger deployment (e.g., https://portainer.example.com/api/webhooks/ABCDEF123456)')
+        string(name: 'DOCKER_IMAGE_NAME', defaultValue: 'lawhelp:latest', description: 'Name and tag for the Docker image (e.g., myapp:1.0)')
+        string(name: 'PORTAINER_WEBHOOK_URL', defaultValue: 'https://46.202.195.91:9443/api/stacks/webhooks/f681093f-b55a-4520-817e-fd6add9064e8', description: 'Portainer webhook URL to trigger deployment (e.g., https://portainer.example.com/api/webhooks/ABCDEF123456)')
         // If your repository is private, you would typically use a 'credentials' parameter
         // credentials(name: 'GIT_CREDENTIALS_ID', description: 'Jenkins credential ID for Git access', required: false)
     }
