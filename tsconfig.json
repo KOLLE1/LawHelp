@@ -6,9 +6,10 @@
     "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
     "noEmit": true,
     "module": "ESNext",
-    "strict": true,
+    "target": "ES2020",                       // ✅ Ensures ES2020 features (like Set iteration)
     "lib": ["esnext", "dom", "dom.iterable"],
     "jsx": "react-jsx",
+    "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
@@ -18,6 +19,7 @@
     "paths": {
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"]
-    }
+    },
+    "downlevelIteration": true               // ✅ Moved to correct place
   }
 }

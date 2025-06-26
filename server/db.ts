@@ -1,63 +1,55 @@
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
-import * as schema from '../shared/schema.js';
+import { drizzle as mysqlDrizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
+import * as mysqlSchema from "../shared/schema"; // ✅ MySQL schema
 
-
-
-// Check if running in Replit environment
 const isReplit = process.env.REPLIT_DEPLOYMENT_ID || process.env.REPL_ID;
 
-async function createDatabaseConnection() {
-  try {
-    if (isReplit) {
-      // Replit environment - use PostgreSQL
-      const { drizzle: pgDrizzle } = await import('drizzle-orm/neon-http');
-      const { neon } = await import('@neondatabase/serverless');
-      const pgSchema = await import('../shared/schema-pg.js');
-      
-      if (!process.env.DATABASE_URL) {
-        throw new Error("DATABASE_URL must be set. Please provision a PostgreSQL database in Replit.");
-      }
-      const sql = neon(process.env.DATABASE_URL);
-      const db = pgDrizzle(sql, { schema: pgSchema });
-      console.log('✅ PostgreSQL database connected successfully (Replit)');
-      return db;
-    } else {
-      // Local development - use MySQL
-      console.log('🔧 Local development detected - connecting to MySQL Workbench');
-      
-      const dbConfig = {
-        host: process.env.DB_HOST || 'localhost',
-        port: parseInt(process.env.DB_PORT || '3306'),
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'lawhelp_db',
-        multipleStatements: true,
-      };
+// Define db as unknown initially
+let db: any;
 
-      try {
-        const connection = await mysql.createConnection(dbConfig);
-        const db = drizzle(connection, { schema, mode: 'default' });
-        console.log('✅ MySQL database connected successfully');
-        return db;
-      } catch (error) {
-        console.log('❌ MySQL connection failed. Please ensure:');
-        console.log('1. MySQL is running on your machine');
-        console.log('2. Update your .env file with correct credentials:');
-        console.log('   DB_PASSWORD=your_actual_mysql_password');
-        console.log('3. Create the database in MySQL Workbench:');
-        console.log('   CREATE DATABASE lawhelp_db;');
-        throw error;
-      }
+export async function initDatabase() {
+  if (isReplit) {
+    // ✅ Replit (PostgreSQL)
+    const { drizzle: pgDrizzle } = await import("drizzle-orm/neon-http");
+    const { neon } = await import("@neondatabase/serverless");
+    const pgSchema = await import("../shared/schema-pg.js");
+
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL must be set for Replit.");
     }
-  } catch (error) {
-    console.log('🔧 Falling back to in-memory storage for development');
-    // Return a simple object that won't cause issues
-    return {
-      query: () => Promise.reject(new Error('Database not configured - using in-memory storage'))
+
+    const sql = neon(process.env.DATABASE_URL);
+    db = pgDrizzle(sql, { schema: pgSchema });
+    console.log("✅ PostgreSQL connected (Replit)");
+  } else {
+    // ✅ Local (MySQL)
+    console.log("🔧 Connecting to local MySQL...");
+
+    const dbConfig = {
+      host: process.env.DB_HOST || "localhost",
+      port: parseInt(process.env.DB_PORT || "3306"),
+      user: process.env.DB_USER || "root",
+      password: process.env.DB_PASSWORD || "",
+      database: process.env.DB_NAME || "lawhelp_db",
+      multipleStatements: true,
     };
+
+    const connection = await mysql.createConnection(dbConfig);
+
+    // ✅ Add `mode: 'default'` to fix the error
+    db = mysqlDrizzle(connection, {
+      schema: mysqlSchema,
+      mode: "default", // 🔧 REQUIRED for MySQL drizzle
+    });
+
+    console.log("✅ MySQL connected (local)");
   }
 }
 
-// Initialize database connection
-export const db = createDatabaseConnection();
+// ✅ Accessor after init
+export function getDb() {
+  if (!db) {
+    throw new Error("❌ Database not initialized. Call initDatabase() first.");
+  }
+  return db;
+}

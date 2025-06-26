@@ -19,19 +19,21 @@ export interface ChatSession {
   updatedAt: string;
 }
 
+export type ChatSender = 'user' | 'ai';
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
   userId: string;
   content: string;
-  sender: 'user' | 'ai';
+  sender: ChatSender;
+  createdAt: string;
   metadata?: {
     category?: string;
     confidence?: number;
     references?: string[];
     disclaimer?: string;
   };
-  createdAt: string;
 }
 
 export interface Lawyer {
@@ -69,7 +71,15 @@ export interface AuthState {
 }
 
 export interface WSMessage {
-  type: 'auth' | 'chat_message' | 'message_sent' | 'ai_response' | 'error' | 'auth_success' | 'auth_error';
+  type:
+    | 'auth'
+    | 'auth_success'
+    | 'auth_error'
+    | 'user_message'
+    | 'chat_message'
+    | 'message_sent'
+    | 'ai_response'
+    | 'error';
   token?: string;
   sessionId?: string;
   content?: string;

@@ -5,14 +5,18 @@ import { storage } from "./storage-mysql";
 import { aiLegalService } from "./ai-service";
 import { twoFactorService } from "./2fa-service";
 import { metricsHandler, healthHandler, metricsCollector } from "./metrics";
-import bcrypt from "bcrypt";
+import bcrypt from 'bcryptjs';
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { z } from "zod";
 import { insertUserSchema, insertChatSessionSchema, insertChatMessageSchema } from "../shared/schema";
 import { PassThrough } from "stream";
 
-const JWT_SECRET = process.env.JWT_SECRET || "fallback-secret-key";
+if (!process.env.JWT_SECRET) {
+  throw new Error("JWT_SECRET is missing in environment variables");
+}
+const JWT_SECRET = process.env.JWT_SECRET;
+
 
 // WebSocket connections map
 const wsConnections = new Map<string, WebSocket>();

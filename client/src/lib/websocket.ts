@@ -1,90 +1,111 @@
+import { useEffect, useRef, useState, useCallback } from "react";
 import type { WSMessage } from "@/types";
 
-class WebSocketManager {
-  private ws: WebSocket | null = null;
-  private token: string | null = null;
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private listeners: Map<string, Set<(message: WSMessage) => void>> = new Map();
-
-  connect(token: string) {
-    this.token = token;
-    this.createConnection();
-  }
-
-  private createConnection() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.onopen = () => {
-      console.log("WebSocket connected");
-      this.reconnectAttempts = 0;
-      
-      if (this.token) {
-        this.send({ type: 'auth', token: this.token });
-      }
-    };
-
-    this.ws.onmessage = (event) => {
-      try {
-        const message: WSMessage = JSON.parse(event.data);
-        this.notifyListeners(message.type, message);
-      } catch (error) {
-        console.error("Failed to parse WebSocket message:", error);
-      }
-    };
-
-    this.ws.onclose = () => {
-      console.log("WebSocket disconnected");
-      this.handleReconnect();
-    };
-
-    this.ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
-    };
-  }
-
-  private handleReconnect() {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      const delay = Math.pow(2, this.reconnectAttempts) * 1000;
-      setTimeout(() => {
-        this.reconnectAttempts++;
-        this.createConnection();
-      }, delay);
-    }
-  }
-
-  send(message: WSMessage): boolean {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message));
-      return true;
-    }
-    return false;
-  }
-
-  subscribe(eventType: string, callback: (message: WSMessage) => void) {
-    if (!this.listeners.has(eventType)) {
-      this.listeners.set(eventType, new Set());
-    }
-    this.listeners.get(eventType)!.add(callback);
-
-    return () => {
-      this.listeners.get(eventType)?.delete(callback);
-    };
-  }
-
-  private notifyListeners(eventType: string, message: WSMessage) {
-    this.listeners.get(eventType)?.forEach(callback => callback(message));
-  }
-
-  disconnect() {
-    this.ws?.close();
-    this.ws = null;
-    this.token = null;
-    this.listeners.clear();
-  }
+interface UseWebSocketOptions {
+  token?: string;
+  onMessage?: (message: WSMessage) => void;
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  onError?: (error: Event) => void;
 }
 
-export const wsManager = new WebSocketManager();
+export function useWebSocket(options: UseWebSocketOptions) {
+  const [isConnected, setIsConnected] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    const protocol = location.protocol === "https:" ? "wss" : "ws";
+    const wsUrl = `${protocol}://${location.host}/ws`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setIsConnected(true);
+      setIsAuthenticated(false);
+      options.onConnect?.();
+
+      // 🔐 Authenticate immediately if token is provided
+      if (options.token) {
+        const authPayload: WSMessage = { type: "auth", token: options.token };
+        ws.send(JSON.stringify(authPayload));
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message: WSMessage = JSON.parse(event.data);
+
+        if (message.type === "auth_success") {
+          setIsAuthenticated(true);
+          console.log("✅ WebSocket authenticated");
+        }
+
+        if (message.type === "auth_error") {
+          setIsAuthenticated(false);
+          console.warn("❌ WebSocket authentication failed:", message.message);
+          ws.close();
+        }
+
+        options.onMessage?.(message);
+      } catch (err) {
+        console.error("WebSocket JSON parse error:", err);
+      }
+    };
+
+    ws.onclose = () => {
+      setIsConnected(false);
+      setIsAuthenticated(false);
+      options.onDisconnect?.();
+    };
+
+    ws.onerror = (e) => {
+      console.error("WebSocket error:", e);
+      options.onError?.(e);
+    };
+  }, [options]);
+
+  useEffect(() => {
+    if (options.token) {
+      connect();
+    }
+
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect, options.token]);
+
+  const sendMessage = useCallback((message: WSMessage): boolean => {
+  if (wsRef.current?.readyState === WebSocket.OPEN) {
+    if (!isAuthenticated) {
+      console.warn("WebSocket is open but not authenticated. Delaying message...");
+      // Wait for auth then send
+      const waitAndSend = () => {
+        if (isAuthenticated) {
+          wsRef.current?.send(JSON.stringify(message));
+        } else {
+          setTimeout(waitAndSend, 100); // retry every 100ms
+        }
+      };
+      waitAndSend();
+      return true;
+    }
+
+    wsRef.current.send(JSON.stringify(message));
+    return true;
+  }
+
+  console.warn("WebSocket not ready to send.");
+  return false;
+}, [isAuthenticated]);
+
+
+  return {
+    isConnected,
+    isAuthenticated,
+    sendMessage,
+  };
+}

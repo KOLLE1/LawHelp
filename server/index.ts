@@ -1,23 +1,40 @@
-import express, { type Request, Response, NextFunction } from "express";
+import 'dotenv/config'; // 👈 ensures .env variables are loaded before anything else
+
+
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express, { Request, Response, NextFunction } from "express";
+import { createServer } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import jwt from "jsonwebtoken";
+import { initDatabase } from "./db";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { config } from 'dotenv';
+import chatbotRouter, { setGroqClient } from './routes/chatbot';
+import { handleWebSocketMessage } from "./ws-handler";
+import { initWebSocketServer } from "./ws-handler";
 
-config()
+setGroqClient(process.env.GROQ_API_KEY!);
 
 const app = express();
+const httpServer = createServer(app);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+app.use('/api/chatbot', chatbotRouter);
+
+// ✅ Logging middleware for API responses
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: any;
 
-  const originalResJson = res.json;
+  const originalJson = res.json;
   res.json = function (bodyJson, ...args) {
     capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
+    return originalJson.apply(res, [bodyJson, ...args]);
   };
 
   res.on("finish", () => {
@@ -27,11 +44,7 @@ app.use((req, res, next) => {
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
       }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
+      if (logLine.length > 80) logLine = logLine.slice(0, 79) + "…";
       log(logLine);
     }
   });
@@ -39,31 +52,91 @@ app.use((req, res, next) => {
   next();
 });
 
-(async () => {
-  const server = await registerRoutes(app);
+// ✅ WebSocket setup
+interface ExtendedWebSocket extends WebSocket {
+  userId?: string;
+}
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
-    res.status(status).json({ message });
-    throw err;
+wss.on("connection", (ws, req) => {
+  const socket = ws as ExtendedWebSocket;
+  console.log("📡 WebSocket connected");
+
+  socket.on("message", async (data: WebSocket.RawData) => {
+    try {
+      const message = JSON.parse(data.toString());
+      console.log("📨 WebSocket message received:", message);
+
+      // Handle authentication
+      if (message.type === "auth") {
+        const token = message.token;
+        console.log("🔐 Received token:", token);
+
+        if (!token) {
+          console.warn("🚫 Missing token");
+          socket.send(JSON.stringify({ type: "auth_error", message: "Missing token" }));
+          socket.close();
+          return;
+        }
+
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+          socket.userId = decoded.userId;
+          console.log("✅ Token valid. User ID:", socket.userId);
+          socket.send(JSON.stringify({ type: "auth_success" }));
+        } catch (err) {
+          console.error("❌ Invalid token:", err);
+          socket.send(JSON.stringify({ type: "auth_error", message: "Invalid token" }));
+          socket.close();
+          return;
+        }
+
+        return;
+      }
+
+      // If not authenticated, reject any non-auth messages
+      if (!socket.userId) {
+        console.warn("❌ Message from unauthenticated socket");
+        socket.send(JSON.stringify({ type: "auth_error", message: "Unauthorized" }));
+        socket.close();
+        return;
+      }
+
+      // Handle AI/user messages
+      await handleWebSocketMessage(message, socket.userId, socket);
+    } catch (err) {
+      console.error("💥 WebSocket processing error:", err);
+      socket.send(JSON.stringify({ type: "error", message: "Failed to process message" }));
+    }
   });
 
-  // importantly only setup vite in development and after
-  // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
+  socket.on("close", () => {
+    console.log("🔌 WebSocket disconnected");
+  });
+});
+
+// ✅ Global error handler
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+  res.status(status).json({ message });
+  throw err;
+});
+
+// ✅ Boot server
+(async () => {
+  await initDatabase();
+  await registerRoutes(app);
+
   if (app.get("env") === "development") {
-    await setupVite(app, server);
+    await setupVite(app, httpServer);
   } else {
     serveStatic(app);
   }
 
-  // ALWAYS serve the app on port 5000
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = 5000;
-  server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
-  });
+    const port = Number(process.env.PORT) || 5000;
+    httpServer.listen(port, "0.0.0.0", () => {
+      log(`🚀 Server running at http://localhost:${port}`);
+    });
 })();
