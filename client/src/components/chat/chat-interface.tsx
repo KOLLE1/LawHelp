@@ -27,18 +27,22 @@ export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterf
   const { sendMessage, isConnected, isAuthenticated } = useWebSocket({
     token: token || undefined,
     onMessage: (msg: WSMessage) => {
-      if (msg.type === "message_sent" || msg.type === "ai_response") {
+      console.log("WebSocket onMessage received:", msg);
+      if (msg.type === "message_sent") {
+        // Do not add the message here to avoid duplication; rely on handleSendMessage
+        return;
+      }
+      if (msg.type === "ai_response") {
         const newMessage: ChatMessage = {
           id: crypto.randomUUID(),
           content: msg.content || "",
-          sender: msg.type === "message_sent" ? "user" : "ai",
+          sender: "ai",
           sessionId: msg.sessionId || localSessionId || "default",
           userId: user?.id || "anon",
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, newMessage]);
-
-        if (msg.type === "ai_response") setIsTyping(false);
+        setIsTyping(false);
       }
 
       if (msg.type === "error") {
@@ -127,8 +131,14 @@ export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterf
       createdAt: new Date().toISOString(),
     };
 
-    console.log("Sending user message:", userMessage);
-    setMessages((prev) => [...prev, userMessage]);
+    // Check if message already exists to avoid duplicates
+    if (!messages.some((msg) => msg.id === userMessage.id)) {
+      console.log("Adding new user message:", userMessage);
+      setMessages((prev) => [...prev, userMessage]);
+    } else {
+      console.log("Duplicate user message detected, skipping addition:", userMessage);
+    }
+
     setIsTyping(true);
 
     const payload: WSMessage = {

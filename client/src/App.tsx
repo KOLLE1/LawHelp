@@ -19,6 +19,7 @@ import Knowledge from "@/pages/knowledge";
 import Profile from "@/pages/profile";
 import { About } from "@/pages/about";
 import NotFound from "@/pages/not-found";
+import "./index.css";
 
 function AuthenticatedRoutes() {
   return (

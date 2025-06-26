@@ -10,7 +10,7 @@ interface WSMessage {
   type: "auth" | "user_message" | "ai_response" | "error" | "auth_success" | "auth_error" | "message_sent";
   token?: string;
   sessionId?: string;
-  content?: string;
+  content?: string | { type: string; name: string; data: string };
   message?: string;
   userId?: string;
 }
@@ -88,7 +88,6 @@ export async function handleWebSocketMessage(
     if (message.type === "user_message" && message.content && message.sessionId) {
       console.log("Processing user_message:", { sessionId: message.sessionId, content: message.content });
 
-      // Validate sessionId exists in chat_sessions
       const session = await storage.getChatSession(message.sessionId);
       if (!session) {
         console.error(`Invalid session ID: ${message.sessionId} does not exist in chat_sessions`);
@@ -111,28 +110,34 @@ export async function handleWebSocketMessage(
         return;
       }
 
-      // Save user message
+      let contentToSave: string;
+      if (typeof message.content === "string") {
+        contentToSave = message.content;
+      } else if (message.content && typeof message.content === "object") {
+        const { type, name, data } = message.content;
+        contentToSave = `[${type.toUpperCase()}] ${name}: ${data.substring(0, 50)}${data.length > 50 ? "..." : ""}`;
+      } else {
+        contentToSave = "Unknown message content";
+      }
+
       await createMessage({
         role: "user",
-        content: message.content,
+        content: contentToSave,
         userId,
         sessionId: message.sessionId,
       });
 
-      // Confirm message sent
       socket.send(
         JSON.stringify({
           type: "message_sent",
           sessionId: message.sessionId,
-          content: message.content,
+          content: contentToSave,
         })
       );
 
-      // Get AI response
-      const aiResponse = await getAnswerFromAI(message.content);
+      const aiResponse = await getAnswerFromAI(contentToSave);
       const aiText = aiResponse.answer;
 
-      // Save AI reply
       await createMessage({
         role: "ai",
         content: aiText,
@@ -140,7 +145,6 @@ export async function handleWebSocketMessage(
         sessionId: message.sessionId,
       });
 
-      // Send to frontend
       socket.send(
         JSON.stringify({
           type: "ai_response",
