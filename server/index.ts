@@ -78,7 +78,8 @@ wss.on("connection", (ws, req) => {
         }
 
         try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+          const JWT_SECRET = process.env.JWT_SECRET! || "ljankfbauifiausfjbdjsjdfjksdbfka"
+          const decoded = jwt.verify(token, JWT_SECRET) as any;
           socket.userId = decoded.userId;
           console.log("✅ Token valid. User ID:", socket.userId);
           socket.send(JSON.stringify({ type: "auth_success" }));

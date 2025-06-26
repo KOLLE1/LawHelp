@@ -21,7 +21,7 @@ const localStorageMock = {
 global.localStorage = localStorageMock as any;
 
 // Mock process.env for tests
-process.env.JWT_SECRET = 'test-secret';
+process.env.JWT_SECRET = "ljankfbauifiausfjbdjsjdfjksdbfka";
 process.env.NODE_ENV = 'test';
 
 // Suppress console.log in tests unless debugging
