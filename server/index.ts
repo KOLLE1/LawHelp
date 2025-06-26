@@ -15,7 +15,11 @@ import chatbotRouter, { setGroqClient } from './routes/chatbot';
 import { handleWebSocketMessage } from "./ws-handler";
 import { initWebSocketServer } from "./ws-handler";
 
-setGroqClient(process.env.GROQ_API_KEY!);
+const GROQ_API_KEY = "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"
+
+
+setGroqClient(GROQ_API_KEY);
+console.log(GROQ_API_KEY)
 
 const app = express();
 const httpServer = createServer(app);
