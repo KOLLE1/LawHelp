@@ -22,11 +22,6 @@ pipeline {
     // Environment variables:
     // Define variables that will be available throughout the pipeline.
     // These use the parameters defined above.
-    environment {
-        // Example for a private repository (uncomment and configure if needed):
-        // GIT_CREDENTIALS = credentials('your-jenkins-git-credential-id') // This would be the ID from Jenkins Credentials Manager
-    }
-
     // Stages: Define the different steps in your CI/CD process.
     stages {
         // Stage 1: Checkout the Git Repository
