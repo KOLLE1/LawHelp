@@ -14,16 +14,17 @@ interface ChatInterfaceProps {
   onSessionChange?: (sessionId: string) => void;
 }
 
-export function ChatInterface({ selectedSessionId }: ChatInterfaceProps) {
+export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterfaceProps) {
   const [currentMessage, setCurrentMessage] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [localSessionId, setLocalSessionId] = useState<string | undefined>(selectedSessionId);
   const { user } = useAuth();
   const { toast } = useToast();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const token = localStorage.getItem("auth_token");
 
-  const { sendMessage, isConnected } = useWebSocket({
+  const { sendMessage, isConnected, isAuthenticated } = useWebSocket({
     token: token || undefined,
     onMessage: (msg: WSMessage) => {
       if (msg.type === "message_sent" || msg.type === "ai_response") {
@@ -31,7 +32,7 @@ export function ChatInterface({ selectedSessionId }: ChatInterfaceProps) {
           id: crypto.randomUUID(),
           content: msg.content || "",
           sender: msg.type === "message_sent" ? "user" : "ai",
-          sessionId: selectedSessionId || "default",
+          sessionId: msg.sessionId || localSessionId || "default",
           userId: user?.id || "anon",
           createdAt: new Date().toISOString(),
         };
@@ -51,11 +52,54 @@ export function ChatInterface({ selectedSessionId }: ChatInterfaceProps) {
     },
   });
 
+  const createSession = async (): Promise<string> => {
+    console.log("Attempting to create new session with token:", token?.substring(0, 20) + "...");
+    try {
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      const response = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: "New Chat Session" }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create session: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log("Created new session:", data);
+      setLocalSessionId(data.id);
+      onSessionChange?.(data.id);
+      return data.id;
+    } catch (error) {
+      console.error("Session creation error:", error);
+      toast({
+        title: "Session Creation Failed",
+        description: `Unable to create a new chat session: ${error instanceof Error ? error.message : "Unknown error"}`,
+        variant: "destructive",
+      });
+      throw error;
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentMessage.trim()) return;
+    if (!currentMessage.trim()) {
+      console.log("No message to send (empty input)");
+      return;
+    }
 
-    if (!sendMessage || !isConnected) {
+    console.log("WebSocket state:", { isConnected, isAuthenticated, sendMessage: !!sendMessage });
+
+    if (!sendMessage || !isConnected || !isAuthenticated) {
+      console.log("WebSocket not ready:", { isConnected, isAuthenticated });
       toast({
         title: "WebSocket Not Ready",
         description: "WebSocket is not ready or authenticated",
@@ -64,27 +108,39 @@ export function ChatInterface({ selectedSessionId }: ChatInterfaceProps) {
       return;
     }
 
+    let sessionId = localSessionId || selectedSessionId;
+    if (!sessionId || sessionId === "default") {
+      console.log("No valid session ID, creating new session...");
+      try {
+        sessionId = await createSession();
+      } catch (error) {
+        return;
+      }
+    }
+
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       content: currentMessage.trim(),
       sender: "user",
-      sessionId: selectedSessionId || "default",
+      sessionId,
       userId: user?.id || "anon",
       createdAt: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMessage]); // ✅ Correct spread
+    console.log("Sending user message:", userMessage);
+    setMessages((prev) => [...prev, userMessage]);
     setIsTyping(true);
 
     const payload: WSMessage = {
-  type: "user_message", // ✅ Backend expects this
-  sessionId: selectedSessionId || "default",
-  content: currentMessage.trim(),
-  userId: user?.id || undefined,
-};
+      type: "user_message",
+      sessionId,
+      content: currentMessage.trim(),
+      userId: user?.id || undefined,
+    };
 
+    const sent = sendMessage(payload);
+    console.log("Message sent successfully:", sent);
 
-    sendMessage(payload);
     setCurrentMessage("");
   };
 
@@ -100,64 +156,103 @@ export function ChatInterface({ selectedSessionId }: ChatInterfaceProps) {
   }, [messages, isTyping]);
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-gray-950">
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 transition-all duration-300">
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="max-w-3xl mx-auto px-4 py-8">
-            <div className="space-y-6">
-              {messages.map((message) => (
-                <Message key={message.id} message={message} />
-              ))}
-              {isTyping && (
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
-                    <Bot className="h-4 w-4 text-white" />
-                  </div>
-                  <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-3">
+        <ScrollArea className="h-full px-4 py-6">
+          <div className="max-w-4xl mx-auto space-y-4">
+            {messages.length === 0 && (
+              <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                <Bot className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-2" />
+                <p className="text-sm">Start a conversation by typing your legal question below.</p>
+              </div>
+            )}
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"} mb-4 animate-fade-in`}
+              >
+                <div
+                  className={`max-w-[70%] p-4 rounded-2xl shadow-sm transition-all duration-200 ${
+                    message.sender === "user"
+                      ? "bg-blue-500 text-white rounded-br-none"
+                      : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none"
+                  }`}
+                >
+                  <Message message={message} />
+                  <p className="text-xs mt-1 opacity-70">
+                    {new Date(message.createdAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {isTyping && (
+              <div className="flex justify-start mb-4">
+                <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-5 w-5 text-green-500" />
                     <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.1s" }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0.2s" }}></div>
+                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                      <div
+                        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.1s" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                        style={{ animationDelay: "0.2s" }}
+                      ></div>
                     </div>
                   </div>
                 </div>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
       </div>
 
-      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950">
-        <div className="max-w-3xl mx-auto p-4">
+      <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-lg">
+        <div className="max-w-4xl mx-auto p-4">
           <form onSubmit={handleSendMessage} className="relative">
-            <div className="relative bg-gray-50 dark:bg-gray-800 rounded-3xl border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="flex items-center bg-gray-100 dark:bg-gray-800 rounded-full border border-gray-300 dark:border-gray-600 shadow-sm transition-all duration-200 hover:shadow-md">
               <Textarea
                 value={currentMessage}
                 onChange={(e) => setCurrentMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Ask your legal question."
-                className="w-full bg-transparent border-0 resize-none rounded-3xl px-6 py-4 pr-20 text-base focus:ring-0 focus:outline-none min-h-[56px] max-h-32"
+                placeholder="Ask your legal question..."
+                className="w-full bg-transparent border-0 resize-none rounded-full px-6 py-3 text-base focus:ring-0 focus:outline-none min-h-[48px] max-h-32"
                 rows={1}
               />
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
-                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full">
-                  <Paperclip className="h-4 w-4" />
+              <div className="flex items-center gap-2 pr-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
+                  <Paperclip className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                 </Button>
-                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full">
-                  <Mic className="h-4 w-4" />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                >
+                  <Mic className="h-4 w-4 text-gray-500 dark:text-gray-400" />
                 </Button>
                 <Button
                   type="submit"
                   disabled={!currentMessage.trim() || isTyping}
                   size="sm"
-                  className="h-8 w-8 p-0 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+                  className="h-8 w-8 p-0 rounded-full bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:hover:bg-blue-500"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-            <div className="flex items-center justify-center mt-3 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex justify-center mt-2 text-xs text-gray-500 dark:text-gray-400">
               <div className="flex items-center gap-1">
                 <Square className="h-3 w-3" />
                 <span>AI Legal Chat</span>

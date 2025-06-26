@@ -2,15 +2,17 @@ import { WebSocketServer, WebSocket } from "ws";
 import jwt from "jsonwebtoken";
 import { createMessage } from "./lib/messages";
 import { getAnswerFromAI } from "./routes/chatbot";
-import { JWT_SECRET } from "../lib/jwt"; // make sure this exists
+import { storage } from "./storage-mysql";
+import { JWT_SECRET } from "../lib/jwt";
 import type { IncomingMessage } from "http";
 
 interface WSMessage {
-  type: "auth" | "user_message" | "ai_response" | "error" | "auth_success" | "message_sent";
+  type: "auth" | "user_message" | "ai_response" | "error" | "auth_success" | "auth_error" | "message_sent";
   token?: string;
   sessionId?: string;
   content?: string;
   message?: string;
+  userId?: string;
 }
 
 interface ExtendedWebSocket extends WebSocket {
@@ -25,9 +27,10 @@ export function initWebSocketServer(server: any) {
   wss.on("connection", (ws: ExtendedWebSocket, req: IncomingMessage) => {
     console.log("📡 WebSocket connected");
 
-    ws.on("message", async (data) => {
+    const onAuthMessage = async (data: WebSocket.RawData) => {
       try {
         const message: WSMessage = JSON.parse(data.toString());
+        console.log("📨 WebSocket message received:", message);
 
         if (message.type === "auth" && message.token) {
           const decoded = jwt.verify(message.token, JWT_SECRET) as { userId: string };
@@ -35,29 +38,31 @@ export function initWebSocketServer(server: any) {
           const userId = decoded.userId;
           ws.userId = userId;
 
-          // Store the authenticated socket
           authenticatedUsers.set(userId, ws);
           console.log("✅ Token valid. User ID:", userId);
 
           ws.send(JSON.stringify({ type: "auth_success", userId }));
 
-          // Setup listener for next messages
-          ws.on("message", (msgData) => {
+          ws.on("message", async (msgData) => {
             try {
               const parsed = JSON.parse(msgData.toString()) as WSMessage;
-              handleWebSocketMessage(parsed, userId, ws);
+              console.log("📨 WebSocket message received:", parsed);
+
+              if (parsed.type === "user_message") {
+                await handleWebSocketMessage(parsed, userId, ws);
+              }
             } catch (err) {
-              console.error("🔴 Error parsing message:", err);
+              console.error("🔴 Invalid message format:", err);
               ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
             }
           });
 
-          // Handle disconnect
           ws.on("close", () => {
             authenticatedUsers.delete(userId);
             console.log("🔌 WebSocket disconnected (user:", userId, ")");
           });
 
+          ws.off("message", onAuthMessage);
         } else {
           ws.send(JSON.stringify({ type: "auth_error", message: "Missing or invalid token" }));
           ws.close();
@@ -67,7 +72,9 @@ export function initWebSocketServer(server: any) {
         ws.send(JSON.stringify({ type: "auth_error", message: "Authentication failed" }));
         ws.close();
       }
-    });
+    };
+
+    ws.on("message", onAuthMessage);
   });
 }
 
@@ -76,49 +83,87 @@ export async function handleWebSocketMessage(
   userId: string,
   socket: WebSocket
 ) {
+  console.log("Received WebSocket message:", message);
   try {
     if (message.type === "user_message" && message.content && message.sessionId) {
-      const { sessionId, content } = message;
+      console.log("Processing user_message:", { sessionId: message.sessionId, content: message.content });
+
+      // Validate sessionId exists in chat_sessions
+      const session = await storage.getChatSession(message.sessionId);
+      if (!session) {
+        console.error(`Invalid session ID: ${message.sessionId} does not exist in chat_sessions`);
+        socket.send(
+          JSON.stringify({
+            type: "error",
+            message: `Session ID ${message.sessionId} does not exist`,
+          })
+        );
+        return;
+      }
+      if (session.userId !== userId) {
+        console.error(`Unauthorized access: User ${userId} does not own session ${message.sessionId}`);
+        socket.send(
+          JSON.stringify({
+            type: "error",
+            message: `User not authorized for session ${message.sessionId}`,
+          })
+        );
+        return;
+      }
 
       // Save user message
       await createMessage({
         role: "user",
-        content,
+        content: message.content,
         userId,
-        sessionId,
+        sessionId: message.sessionId,
       });
 
-      // Confirm receipt
-      socket.send(JSON.stringify({
-        type: "message_sent",
-        sessionId,
-        content,
-      }));
+      // Confirm message sent
+      socket.send(
+        JSON.stringify({
+          type: "message_sent",
+          sessionId: message.sessionId,
+          content: message.content,
+        })
+      );
 
-      // Get AI answer
-      const aiResponse = await getAnswerFromAI(content);
+      // Get AI response
+      const aiResponse = await getAnswerFromAI(message.content);
       const aiText = aiResponse.answer;
 
-      // Save AI response
+      // Save AI reply
       await createMessage({
         role: "ai",
         content: aiText,
         userId,
-        sessionId,
+        sessionId: message.sessionId,
       });
 
       // Send to frontend
-      socket.send(JSON.stringify({
-        type: "ai_response",
-        sessionId,
-        content: aiText,
-      }));
+      socket.send(
+        JSON.stringify({
+          type: "ai_response",
+          sessionId: message.sessionId,
+          content: aiText,
+        })
+      );
+    } else {
+      console.error("Invalid user_message format:", message);
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          message: "Invalid message format or missing required fields",
+        })
+      );
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ WebSocket processing error:", err);
-    socket.send(JSON.stringify({
-      type: "error",
-      message: "Something went wrong on the server.",
-    }));
+    socket.send(
+      JSON.stringify({
+        type: "error",
+        message: err.message || "Something went wrong on the server.",
+      })
+    );
   }
 }

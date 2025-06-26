@@ -1,6 +1,5 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage-mysql";
 import { aiLegalService } from "./ai-service";
 import { twoFactorService } from "./2fa-service";
@@ -16,10 +15,6 @@ if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is missing in environment variables");
 }
 const JWT_SECRET = process.env.JWT_SECRET;
-
-
-// WebSocket connections map
-const wsConnections = new Map<string, WebSocket>();
 
 // Middleware for JWT authentication
 function authenticateToken(req: any, res: any, next: any) {
@@ -59,107 +54,11 @@ async function sendVerificationCode(email: string, code: string, type: string): 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
-  // // Initialize storage
-  // const storage = await initializeStorage();
-
-  console.log(storage)
-  // WebSocket server setup
-  const wss = new WebSocketServer({ 
-    server: httpServer, 
-    path: '/ws'
-  });
-
-  wss.on('connection', (ws: WebSocket, req) => {
-    console.log('WebSocket connection established');
-
-    ws.on('message', async (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-
-        if (message.type === 'auth') {
-          // Authenticate WebSocket connection
-          try {
-            const decoded = jwt.verify(message.token, JWT_SECRET) as any;
-            wsConnections.set(decoded.userId, ws);
-            ws.send(JSON.stringify({ type: 'auth_success' }));
-          } catch (error) {
-            ws.send(JSON.stringify({ type: 'auth_error', message: 'Invalid token' }));
-          }
-        } else if (message.type === 'chat_message') {
-          // Handle real-time chat messages
-          const { sessionId, content, userId } = message;
-
-          // Save user message
-          const userMessage = await storage.createChatMessage({
-            sessionId,
-            content,
-            role: 'user',
-          });
-
-          // Broadcast user message
-          ws.send(JSON.stringify({
-            type: 'message_sent',
-            message: userMessage,
-          }));
-
-          // Get AI response
-          try {
-            const aiResponse = await aiLegalService.processLegalQuery({
-              question: content,
-              language: 'en', // TODO: detect language from user preferences
-            });
-
-            // Save AI message
-            const aiMessage = await storage.createChatMessage({
-              sessionId,
-              content: aiResponse.answer,
-              role: 'assistant',
-              category: aiResponse.category,
-              confidence: aiResponse.confidence.toString(),
-              referencesData: aiResponse.references,
-            });
-
-            // Broadcast AI response
-            ws.send(JSON.stringify({
-              type: 'ai_response',
-              message: aiMessage,
-            }));
-
-            // Update session title if it's the first message
-            const messages = await storage.getChatMessages(sessionId);
-            if (messages.length === 2) { // User message + AI response
-              const title = content.length > 50 ? content.substring(0, 50) + '...' : content;
-              await storage.updateChatSession(sessionId, { title });
-            }
-          } catch (error) {
-            console.error('AI service error:', error);
-            ws.send(JSON.stringify({
-              type: 'error',
-              message: 'Failed to get AI response. Please try again.',
-            }));
-          }
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-        ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
-      }
-    });
-
-    ws.on('close', () => {
-      // Remove connection from map
-      for (const [userId, connection] of Array.from(wsConnections.entries())) {
-        if (connection === ws) {
-          wsConnections.delete(userId);
-          break;
-        }
-      }
-    });
-  });
+  // WebSocket server setup moved to ws-handler.ts
 
   // Auth routes
   app.post('/api/auth/register', async (req, res) => {
     try {
-
       const  { email, firstName, lastName, password } = req.body
       var password_hash = await bcrypt.hash(password, 12)
       var name = `${firstName} ${lastName}`
@@ -176,8 +75,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existingUser) {
         return res.status(400).json({ message: 'User already exists with this email' });
       }
-
-
 
       // Hash password
       const passwordHash = userData.passwordHash
@@ -231,8 +128,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!user) {
         return res.status(401).json({ message: 'Invalid email or password' });
       }
-
-      
 
       const isValidPassword = await bcrypt.compare(password, user.passwordHash);
       if (!isValidPassword) {
@@ -293,13 +188,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId, code } = req.body;
 
- 
       const user = await storage.getUserByEmail(userId)
 
       if(!user){
         return res.status(400).json({ message: 'User with this email dose not exist' });
       }
-
 
       const verificationCode = await storage.getVerificationCode(user.id, 'email_verification', code);
       if (!verificationCode) {
@@ -319,8 +212,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/verify-2fa', async (req, res) => {
     try {
       const { userId, code } = req.body;
-
-      
 
       const verificationCode = await storage.getVerificationCode(userId, 'two_factor', code);
       if (!verificationCode) {
@@ -484,7 +375,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enhanced 2FA verification for login
-  app.post('/api/auth/verify-2fa-enhanced', async (req, res) => {
+  app.post('/api/auth/2fa-enhanced', async (req, res) => {
     try {
       const { userId, code, method } = req.body;
       const user = await storage.getUser(userId);

@@ -12,7 +12,10 @@ export function useWebSocket({ token, onMessage }: UseWebSocketOptions) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    const url = `ws://localhost:5000/ws`;
+    if (socketRef.current?.readyState === WebSocket.OPEN) return;
+
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const url = `${protocol}://${window.location.host}/ws`;
     const socket = new WebSocket(url);
     socketRef.current = socket;
 
@@ -31,7 +34,6 @@ export function useWebSocket({ token, onMessage }: UseWebSocketOptions) {
       try {
         const parsed: WSMessage = JSON.parse(event.data);
 
-        // Handle auth success/error separately
         if (parsed.type === "auth_success") {
           setIsAuthenticated(true);
         } else if (parsed.type === "auth_error") {
@@ -39,7 +41,6 @@ export function useWebSocket({ token, onMessage }: UseWebSocketOptions) {
           setIsAuthenticated(false);
         }
 
-        // Pass all messages to the onMessage handler
         onMessage(parsed);
       } catch (error) {
         console.error("Invalid WebSocket message:", error);
@@ -57,9 +58,12 @@ export function useWebSocket({ token, onMessage }: UseWebSocketOptions) {
     };
 
     return () => {
-      socket.close();
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.close();
+      }
+      socketRef.current = null;
     };
-  }, [token, onMessage]);
+  }, [token]);
 
   const sendMessage = (msg: WSMessage): boolean => {
     if (

@@ -63,18 +63,15 @@ wss.on("connection", (ws, req) => {
   const socket = ws as ExtendedWebSocket;
   console.log("📡 WebSocket connected");
 
-  socket.on("message", async (data: WebSocket.RawData) => {
+  socket.on("message", async (data) => {
     try {
       const message = JSON.parse(data.toString());
       console.log("📨 WebSocket message received:", message);
 
-      // Handle authentication
       if (message.type === "auth") {
         const token = message.token;
-        console.log("🔐 Received token:", token);
 
         if (!token) {
-          console.warn("🚫 Missing token");
           socket.send(JSON.stringify({ type: "auth_error", message: "Missing token" }));
           socket.close();
           return;
@@ -86,28 +83,26 @@ wss.on("connection", (ws, req) => {
           console.log("✅ Token valid. User ID:", socket.userId);
           socket.send(JSON.stringify({ type: "auth_success" }));
         } catch (err) {
-          console.error("❌ Invalid token:", err);
           socket.send(JSON.stringify({ type: "auth_error", message: "Invalid token" }));
           socket.close();
-          return;
         }
 
-        return;
+        return; // ⛔ You can REMOVE this line or restructure to support continuous handling
       }
 
-      // If not authenticated, reject any non-auth messages
+      // 🛑 If not authenticated yet, reject all other messages
       if (!socket.userId) {
-        console.warn("❌ Message from unauthenticated socket");
         socket.send(JSON.stringify({ type: "auth_error", message: "Unauthorized" }));
         socket.close();
         return;
       }
 
-      // Handle AI/user messages
+      // ✅ Now handle real messages
       await handleWebSocketMessage(message, socket.userId, socket);
+
     } catch (err) {
-      console.error("💥 WebSocket processing error:", err);
-      socket.send(JSON.stringify({ type: "error", message: "Failed to process message" }));
+      console.error("WebSocket message error:", err);
+      socket.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
     }
   });
 
@@ -115,6 +110,8 @@ wss.on("connection", (ws, req) => {
     console.log("🔌 WebSocket disconnected");
   });
 });
+
+
 
 // ✅ Global error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
