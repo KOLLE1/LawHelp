@@ -34,7 +34,7 @@ export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterf
       }
       if (msg.type === "ai_response") {
         const newMessage: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: getUUID(),
           content: msg.content || "",
           sender: "ai",
           sessionId: msg.sessionId || localSessionId || "default",
@@ -123,7 +123,7 @@ export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterf
     }
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: getUUID(),
       content: currentMessage.trim(),
       sender: "user",
       sessionId,
@@ -273,4 +273,17 @@ export function ChatInterface({ selectedSessionId, onSessionChange }: ChatInterf
       </div>
     </div>
   );
+}
+
+// UUID fallback for environments where crypto.randomUUID is not available
+function getUUID() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback: RFC4122 version 4 compliant UUID generator
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0,
+      v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
