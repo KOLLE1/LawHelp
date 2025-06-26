@@ -2,7 +2,9 @@ import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import nodemailer from 'nodemailer';
 import { createTransport } from 'nodemailer';
+import { config } from 'dotenv';
 
+config()
 export interface TwoFactorSetup {
   secret: string;
   qrCodeUrl: string;
@@ -29,12 +31,12 @@ export class TwoFactorService {
     // Initialize Gmail SMTP configuration
     this.config = {
       gmail: {
-        user: process.env.GMAIL_USER || 'your-email@gmail.com',
-        pass: process.env.GMAIL_APP_PASSWORD || 'your-app-password',
+        user: process.env.GMAIL_USER || 'kangbrandon18@gmail.com',
+        pass: process.env.GMAIL_APP_PASSWORD || 'tzil idwy oexp lboz',
       },
       from: {
         name: process.env.FROM_NAME || 'LawHelp',
-        address: process.env.FROM_EMAIL || 'your-email@gmail.com',
+        address: process.env.FROM_EMAIL || 'kangbrandon18@gmail.com',
       },
     };
 
